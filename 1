@@ -1,0 +1,40 @@
+package main
+
+import (
+	"fmt"
+	"io"
+	"net/http"
+)
+type Pxy struct{}
+
+// ServerHTTP 实现http.Handler接口中的方法
+func (p *Pxy) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	fmt.Printf(`Received request {"Method":"%s","Host":"%s","RemoteAddr":"%s"}`, req.Method, req.Host, req.RemoteAddr)
+	fmt.Println()
+	//1. 复制请求, 拷贝一个request对象，避免后续影响源对象
+	copyReq := new(http.Request)
+	*copyReq = *req
+	//2. 转发,发送客户端请求并返回response
+	transport := http.DefaultTransport
+	res, err := transport.RoundTrip(copyReq)
+	if err != nil {
+		rw.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	//3. 获得响应并反写客户端
+	for key, values := range res.Header {
+		for _, v := range values {
+			rw.Header().Add(key, v)
+		}
+	}
+	rw.WriteHeader(res.StatusCode)
+	io.Copy(rw, res.Body)
+	defer res.Body.Close()
+}
+func main(){
+	var p Pxy
+	//设置访问路由
+	http.Handle("/", &p)
+	//创建监听端口
+	http.ListenAndServe(":8080", nil)
+}
